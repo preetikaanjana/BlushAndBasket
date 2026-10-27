@@ -118,7 +118,7 @@ Tested Level of Detail expressions included in the dashboard:
 
 ```powershell
 # 1. Clone repository
-git clone https://github.com/your-username/BlushAndBasket.git
+git clone https://github.com/preetikaanjana/BlushAndBasket.git
 cd BlushAndBasket
 
 # 2. Install dependencies
