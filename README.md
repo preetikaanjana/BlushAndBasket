@@ -85,6 +85,33 @@ flowchart TD
 
 ---
 
+## 📊 Tableau & Power BI Ready Datasets
+
+This project includes pre-aggregated, star-schema datasets ready to drag-and-drop into **Tableau Desktop**, **Tableau Public**, or **Power BI**:
+
+| File | Rows | Granularity | Key BI Visualizations |
+|---|---|---|---|
+| [`tableau_sales_orders.csv`](file:///d:/projects/beauty/BeautyDashBoard/data/tableau_sales_orders.csv) | 4,471 | Order Line | Revenue over time, Category share of wallet, Brand ranking |
+| [`tableau_customer_rfm.csv`](file:///d:/projects/beauty/BeautyDashBoard/data/tableau_customer_rfm.csv) | 4,500 | Customer | RFM Treemap, Customer Lifetime Value, Churn Risk scatter |
+| [`tableau_cohort_retention.csv`](file:///d:/projects/beauty/BeautyDashBoard/data/tableau_cohort_retention.csv) | 64 | Cohort Week | Weekly Cohort Retention Heatmap (Decay curve) |
+| [`tableau_funnel_daily.csv`](file:///d:/projects/beauty/BeautyDashBoard/data/tableau_funnel_daily.csv) | 60 | Date | Daily multi-line time series (Views, Bag Adds, Orders) |
+
+### 🛠️ Pre-Calculated Tableau LOD Formulas
+Tested Level of Detail expressions included in the dashboard:
+- **Customer Acquisition Date:** `{FIXED [Visitor ID]: MIN([Date])}`
+- **Customer Lifetime Spend:** `{FIXED [Visitor ID]: SUM([Line Revenue])}`
+- **Repeat Buyer Flag:** `IF {FIXED [Visitor ID]: COUNTD([Transaction ID])} > 1 THEN "Repeat Customer" ELSE "One-Time Buyer" END`
+- **Week Offset for Retention:** `DATEDIFF('week', [Customer Acquisition Date], [Date])`
+
+---
+
+## 💼 Data Analyst Job & Interview Toolkit
+
+- 📄 **[DATA_ANALYST_PORTFOLIO.md](file:///d:/projects/beauty/BeautyDashBoard/DATA_ANALYST_PORTFOLIO.md)**: Ready-to-copy resume bullet points (Google XYZ format), STAR interview stories, and Top 5 technical interview Q&A.
+- 🗄️ **[queries/data_analyst_case_study.sql](file:///d:/projects/beauty/BeautyDashBoard/queries/data_analyst_case_study.sql)**: Production SQL showcase demonstrating CTEs, Window Functions (`NTILE(5)`, `LAG`, `FIRST_VALUE`), date truncations, and Market Basket self-joins.
+
+---
+
 ## 🚀 Quickstart & Deployment
 
 ### Option A: Local Python Run
@@ -141,19 +168,26 @@ The repository includes pre-configured `render.yaml` and `Procfile`.
 ## 📂 Project Structure
 
 ```text
-BeautyDashBoard/
+BlushAndBasket/
 ├── .streamlit/
 │   └── config.toml             # Theme palette & server settings
 ├── data/
 │   ├── beauty_events.parquet   # 75,000 clickstream interaction logs
-│   └── beauty_products.parquet # 29 beauty items with imagery & tags
+│   ├── beauty_products.parquet # 29 beauty items with imagery & tags
+│   ├── tableau_sales_orders.csv# Star-schema orders extract for Tableau
+│   ├── tableau_customer_rfm.csv# Customer RFM scores (1-5) for Tableau
+│   ├── tableau_cohort_retention.csv # Cohort decay matrix for Tableau
+│   └── tableau_funnel_daily.csv# Daily funnel metrics for Tableau
 ├── models/
 │   └── beauty_ml_bundle.joblib # Serialized K-Means, PCA, & Random Forest models
+├── queries/
+│   └── data_analyst_case_study.sql # Production SQL showcase (CTEs, Window funcs)
 ├── app.py                      # Main Streamlit Pinterest application
 ├── data_generator.py           # Clickstream & catalog generator
 ├── duckdb_engine.py            # High-performance analytical SQL queries
 ├── ml_models.py                # K-Means clustering & Random Forest training
 ├── product_images.py           # Curated aesthetic imagery registry & metadata
+├── DATA_ANALYST_PORTFOLIO.md   # Resume bullets, STAR stories, & interview Q&A
 ├── Dockerfile                  # Multi-stage production container
 ├── docker-compose.yml          # Container orchestration
 ├── .dockerignore               # Docker build context filters
@@ -169,4 +203,4 @@ BeautyDashBoard/
 
 - Modeled on the **RetailRocket eCommerce Clickstream Dataset** benchmark.
 - Nykaa & Sephora cosmetics catalog inspiration.
-- Built with **Python 3.12**, **DuckDB**, **Scikit-Learn**, **Plotly**, and **Streamlit**.
+- Built with **Python 3.12**, **DuckDB SQL**, **Tableau**, **Scikit-Learn**, **Plotly**, and **Streamlit**.

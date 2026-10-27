@@ -207,9 +207,183 @@ class BeautyDuckDBEngine:
         """
         return self.con.execute(sql).df(), sql
 
+    def get_weekly_cohort_retention(self):
+        """Calculates week-by-week user cohort retention decay matrix."""
+        sql = """
+        WITH user_first_week AS (
+            SELECT 
+                visitorid,
+                MIN(date_trunc('week', strptime(date, '%Y-%m-%d'))) AS cohort_week
+            FROM events
+            GROUP BY visitorid
+        ),
+        activity AS (
+            SELECT 
+                e.visitorid,
+                u.cohort_week,
+                date_trunc('week', strptime(e.date, '%Y-%m-%d')) AS activity_week,
+                DATE_DIFF('week', u.cohort_week, date_trunc('week', strptime(e.date, '%Y-%m-%d'))) AS week_offset
+            FROM events e
+            JOIN user_first_week u ON e.visitorid = u.visitorid
+        ),
+        cohort_counts AS (
+            SELECT 
+                strftime(cohort_week, '%Y-%m-%d') AS cohort_week,
+                week_offset,
+                COUNT(DISTINCT visitorid) AS active_users
+            FROM activity
+            GROUP BY cohort_week, week_offset
+        ),
+        cohort_sizes AS (
+            SELECT 
+                cohort_week,
+                active_users AS cohort_size
+            FROM cohort_counts
+            WHERE week_offset = 0
+        )
+        SELECT 
+            c.cohort_week,
+            c.week_offset,
+            c.active_users,
+            s.cohort_size,
+            ROUND(c.active_users * 100.0 / s.cohort_size, 1) AS retention_pct
+        FROM cohort_counts c
+        JOIN cohort_sizes s ON c.cohort_week = s.cohort_week
+        WHERE c.week_offset <= 7
+        ORDER BY c.cohort_week, c.week_offset;
+        """
+        return self.con.execute(sql).df(), sql
+
+    def get_rfm_customer_segments(self):
+        """Calculates RFM (Recency, Frequency, Monetary) quartiles and customer segments."""
+        sql = """
+        WITH customer_rfm_raw AS (
+            SELECT 
+                visitorid,
+                DATE_DIFF('day', MAX(strptime(date, '%Y-%m-%d')), (SELECT MAX(strptime(date, '%Y-%m-%d')) + INTERVAL 1 DAY FROM events)) AS recency_days,
+                COUNT(CASE WHEN event = 'transaction' THEN 1 END) AS order_frequency,
+                COUNT(CASE WHEN event = 'view' THEN 1 END) AS total_views,
+                COUNT(CASE WHEN event = 'addtocart' THEN 1 END) AS total_carts,
+                COALESCE(SUM(CASE WHEN event = 'transaction' THEN price ELSE 0 END), 0) AS total_spend
+            FROM events
+            GROUP BY visitorid
+        ),
+        scored AS (
+            SELECT 
+                *,
+                NTILE(5) OVER (ORDER BY recency_days DESC) AS r_score,
+                NTILE(5) OVER (ORDER BY order_frequency ASC) AS f_score,
+                NTILE(5) OVER (ORDER BY total_spend ASC) AS m_score
+            FROM customer_rfm_raw
+        )
+        SELECT 
+            visitorid,
+            recency_days,
+            order_frequency,
+            total_views,
+            total_carts,
+            total_spend,
+            r_score,
+            f_score,
+            m_score,
+            ROUND((r_score + f_score + m_score) / 3.0, 1) AS rfm_avg,
+            CASE 
+                WHEN r_score >= 4 AND f_score >= 4 AND m_score >= 4 THEN 'Champions'
+                WHEN r_score >= 3 AND f_score >= 3 THEN 'Loyal Customers'
+                WHEN r_score >= 4 AND f_score <= 2 THEN 'Promising / New'
+                WHEN r_score <= 2 AND f_score >= 3 THEN 'At Risk (High Value)'
+                WHEN r_score <= 2 AND f_score <= 2 THEN 'Hibernating / Churned'
+                ELSE 'Potential Loyalists'
+            END AS rfm_segment
+        FROM scored
+        ORDER BY total_spend DESC;
+        """
+        return self.con.execute(sql).df(), sql
+
+    def get_category_performance_summary(self):
+        """Category-level revenue, unit sales, views, conversion rate, and wallet share."""
+        sql = """
+        WITH cat_totals AS (
+            SELECT 
+                category,
+                COUNT(CASE WHEN event = 'view' THEN 1 END) AS views,
+                COUNT(CASE WHEN event = 'addtocart' THEN 1 END) AS carts,
+                COUNT(CASE WHEN event = 'transaction' THEN 1 END) AS orders,
+                COALESCE(SUM(CASE WHEN event = 'transaction' THEN price ELSE 0 END), 0) AS revenue,
+                COUNT(DISTINCT visitorid) AS unique_shoppers
+            FROM events
+            GROUP BY category
+        ),
+        grand_total AS (
+            SELECT SUM(revenue) AS total_revenue FROM cat_totals
+        )
+        SELECT 
+            c.category,
+            c.views,
+            c.carts,
+            c.orders,
+            c.revenue,
+            c.unique_shoppers,
+            ROUND(c.orders * 100.0 / NULLIF(c.views, 0), 2) AS conversion_rate_pct,
+            ROUND(c.revenue * 100.0 / g.total_revenue, 1) AS share_of_wallet_pct,
+            ROUND(c.revenue / NULLIF(c.orders, 0), 0) AS avg_order_value
+        FROM cat_totals c, grand_total g
+        ORDER BY c.revenue DESC;
+        """
+        return self.con.execute(sql).df(), sql
+
+    def export_tableau_ready_datasets(self, output_dir="data"):
+        """Exports clean, star-schema CSV datasets specifically for Tableau & Power BI."""
+        import os
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 1. Sales Orders Dataset (Order line level)
+        orders_sql = """
+        SELECT 
+            e.transactionid,
+            e.date,
+            e.visitorid,
+            e.itemid,
+            e.item_name,
+            e.category,
+            e.brand,
+            e.price AS unit_price,
+            e.price AS line_revenue
+        FROM events e
+        WHERE e.event = 'transaction'
+        ORDER BY e.date ASC, e.transactionid ASC;
+        """
+        df_orders = self.con.execute(orders_sql).df()
+        orders_path = os.path.join(output_dir, "tableau_sales_orders.csv")
+        df_orders.to_csv(orders_path, index=False)
+
+        # 2. Customer RFM Dataset
+        df_rfm, _ = self.get_rfm_customer_segments()
+        rfm_path = os.path.join(output_dir, "tableau_customer_rfm.csv")
+        df_rfm.to_csv(rfm_path, index=False)
+
+        # 3. Cohort Retention Dataset
+        df_cohort, _ = self.get_weekly_cohort_retention()
+        cohort_path = os.path.join(output_dir, "tableau_cohort_retention.csv")
+        df_cohort.to_csv(cohort_path, index=False)
+
+        # 4. Funnel Daily Dataset
+        df_funnel, _ = self.get_daily_event_trends()
+        funnel_path = os.path.join(output_dir, "tableau_funnel_daily.csv")
+        df_funnel.to_csv(funnel_path, index=False)
+
+        return {
+            "orders": orders_path,
+            "rfm": rfm_path,
+            "cohort": cohort_path,
+            "funnel": funnel_path
+        }
+
 if __name__ == "__main__":
     engine = BeautyDuckDBEngine()
     df_trends, _ = engine.get_daily_event_trends()
     print("Trends sample:\n", df_trends.head())
     df_funnel, _ = engine.get_conversion_funnel()
     print("\nFunnel:\n", df_funnel[['stage_name', 'event_count', 'step_conversion_pct', 'overall_conversion_pct']])
+    paths = engine.export_tableau_ready_datasets()
+    print("\nTableau datasets exported:\n", paths)
